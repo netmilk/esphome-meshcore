@@ -256,6 +256,27 @@ public:
 
     bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
         ESP_LOGI(TAG, "CLI cmd: '%s'", command);
+
+        // Built-in: reset all stored config (identity, prefs, ACL) and reboot
+        if (strcmp(command, "reset-config") == 0) {
+            ESP_LOGI(TAG, "Resetting all stored config...");
+            // Clear identity from ESPHome preferences
+            static const uint32_t IDENTITY_PREF_KEY = 0x4D435F49;
+            auto pref = esphome::global_preferences->make_preference<uint8_t[96]>(IDENTITY_PREF_KEY);
+            uint8_t zeros[96] = {};
+            pref.save(&zeros);
+            esphome::global_preferences->sync();
+            // Clear MeshCore settings (NodePrefs, ACL, identity files)
+            settings_delete("mc/com_prefs");
+            settings_delete("mc/s_contacts");
+            settings_delete("mc/identity");
+            strncpy(reply, "Config reset. Rebooting...", MAX_PACKET_PAYLOAD - 1);
+            // Reboot after short delay to let reply send
+            k_msleep(500);
+            sys_reboot(SYS_REBOOT_COLD);
+            return true;
+        }
+
         // Dispatch to registered lambda handlers (from on_command YAML config)
         if (s_cmd_handlers) {
             std::string cmd(command);
@@ -290,6 +311,11 @@ namespace meshcore_sensor {
 // ---- Component Implementation ----
 
 void MeshCoreSensorComponent::setup() {
+    // Clear stale DFU magic — after bootloader flashes new firmware via warm reboot,
+    // the magic may still be in RAM, causing an immediate reboot loop
+    volatile uint32_t *dbl_reset_mem = (volatile uint32_t *) 0x20007F7C;
+    *dbl_reset_mem = 0;
+
     ESP_LOGI(TAG, "Setting up MeshCore Sensor...");
     ESP_LOGI(TAG, "  Node name: %s", node_name_.c_str());
     ESP_LOGI(TAG, "  Frequency: %.3f MHz", frequency_);
@@ -420,7 +446,14 @@ void MeshCoreSensorComponent::setup() {
         auto pref = esphome::global_preferences->make_preference<uint8_t[PRV_KEY_SIZE + PUB_KEY_SIZE]>(IDENTITY_PREF_KEY);
         uint8_t key_data[PRV_KEY_SIZE + PUB_KEY_SIZE];
 
+        bool key_valid = false;
         if (pref.load(&key_data)) {
+            // Check if key is non-zero (reset-config writes zeros)
+            for (size_t i = 0; i < sizeof(key_data); i++) {
+                if (key_data[i] != 0) { key_valid = true; break; }
+            }
+        }
+        if (key_valid) {
             s_mesh->self_id.readFrom(key_data, PRV_KEY_SIZE + PUB_KEY_SIZE);
             ESP_LOGI(TAG, "Loaded identity from flash");
         } else {
@@ -464,9 +497,9 @@ void MeshCoreSensorComponent::setup() {
 
 void MeshCoreSensorComponent::loop() {
     // Check if DFU magic was written (1200 baud touch from ESPHome CDC callback)
-    // Skip on first loop iteration to avoid reboot-loop from stale magic after DFU flash
-    static uint32_t loop_count = 0;
-    if (loop_count > 10) {
+    // ESPHome's DFU component writes the magic but can't reboot (GPIO 18 doesn't reset XIAO),
+    // so we handle the reboot here.
+    {
         volatile uint32_t *dbl_reset_mem = (volatile uint32_t *) 0x20007F7C;
         if (*dbl_reset_mem == 0x5A1AD5) {
             ESP_LOGI(TAG, "DFU requested, rebooting into bootloader...");
@@ -474,7 +507,6 @@ void MeshCoreSensorComponent::loop() {
             sys_reboot(SYS_REBOOT_WARM);
         }
     }
-    loop_count++;
 
     if (!radio_ok_ || !s_mesh) return;
 

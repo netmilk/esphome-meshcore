@@ -111,6 +111,12 @@ meshcore_sensor:
 
 Lambdas receive the full command string and can reference any ESPHome entity via `id()`.
 
+### Built-in Commands
+
+| Command | Description |
+|---------|-------------|
+| `reset-config` | Clears all stored settings (identity, keys, password, node name, ACL) and reboots. The device generates a fresh identity and applies config defaults on next boot. |
+
 ## Hardware
 
 - **MCU:** Seeed XIAO nRF52840 (Sense or non-Sense)
