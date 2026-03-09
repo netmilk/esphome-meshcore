@@ -1,0 +1,64 @@
+esphome:
+  name: xiao-sos
+
+nrf52:
+  board: xiao_ble
+  bootloader: adafruit
+
+logger:
+  level: DEBUG
+
+output:
+  - platform: gpio
+    pin:
+      number: P0.26
+      inverted: true
+    id: red_led
+
+# SOS in Morse: ... --- ...
+# Dot = 200ms on, Dash = 600ms on
+# Gap between elements = 200ms off
+# Gap between letters = 600ms off
+# Gap before repeat = 1400ms off
+interval:
+  - interval: 6s
+    then:
+      # S: dot dot dot
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      - delay: 600ms
+      # O: dash dash dash
+      - output.turn_on: red_led
+      - delay: 600ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 600ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 600ms
+      - output.turn_off: red_led
+      - delay: 600ms
+      # S: dot dot dot
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      - delay: 200ms
+      - output.turn_on: red_led
+      - delay: 200ms
+      - output.turn_off: red_led
+      # remaining time is the gap before repeat

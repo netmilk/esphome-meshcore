@@ -1,0 +1,37 @@
+esphome:
+  name: xiao-meshcore
+
+nrf52:
+  board: xiao_ble
+  bootloader: adafruit
+  dfu:
+    reset_pin: 18
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+meshcore_sensor:
+  name: "LED Sensor"
+  password: "password"
+  led_pin: 26            # P0.26 = onboard red LED (active low)
+  meshcore_path: "/Users/netmilk/projects/MeshCore"
+  # LoRa SX1262 pins (nRF52840 GPIO numbers matching MeshCore XIAO variant)
+  lora_cs_pin: 4         # P0.04 = D4
+  lora_reset_pin: 28     # P0.28 = D2
+  lora_busy_pin: 29      # P0.29 = D3
+  lora_dio1_pin: 3       # P0.03 = D1
+  lora_rxen_pin: 5       # P0.05 = D5
+  lora_sclk_pin: 45      # P1.13 = D8/SCK
+  lora_miso_pin: 46      # P1.14 = D9/MISO
+  lora_mosi_pin: 47      # P1.15 = D10/MOSI
+  # Czech/narrow radio preset
+  frequency: 869.432
+  bandwidth: 62.5
+  spreading_factor: 7
+  coding_rate: 5
+  tx_power: 22
