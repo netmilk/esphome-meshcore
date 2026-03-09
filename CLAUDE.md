@@ -59,7 +59,7 @@ ESPHome clones the repo, and `__init__.py` auto-inits the MeshCore submodule. Al
 - **Stack size**: Main thread needs 8KB (`CONFIG_MAIN_STACK_SIZE=8192`). Default 2KB causes hard faults during deep MeshCore call chains.
 - **SX1262 reset**: Needs explicit hardware reset (RST LOW->HIGH) + SPI pre-init before RadioLib `begin()`.
 - **DIO1 interrupt**: Must call stored callback via `CONTAINER_OF`. A no-op handler breaks all RX.
-- **I2C1 disabled**: P0.04/P0.05 conflict with LoRa CS/RXEN pins. Disabled via DT overlay.
+- **I2C1 conflict**: Default I2C1 pins P0.04/P0.05 conflict with LoRa CS/RXEN. Disabled by default, or remapped via `i2c_sda_pin`/`i2c_scl_pin` config (generates DT overlay with new pinctrl).
 - **DFU magic**: Address `0x20007F7C` stores `0x5A1AD5` for bootloader. Must clear in `setup()` to prevent reboot loops after warm reset.
 - **No `CONFIG_ENTROPY_GENERATOR`**: Causes boot loop on this board. Use `stdlib rand()`.
 - **Node prefs + identity**: Must be set BEFORE `SensorMesh::begin()` (begin calls `radio_set_params`).

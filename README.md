@@ -1,8 +1,8 @@
 # ESPHome MeshCore Sensor
 
-MeshCore mesh networking as an ESPHome component for XIAO nRF52840 + SX1262 LoRa radio.
+Control anything ESPHome can touch — switches, sensors, fans, lights — over long-range LoRa mesh, managed from [MeshCore Companion](https://meshcore.co).
 
-Control anything ESPHome can touch — switches, sensors, fans, lights — over long-range LoRa mesh, managed from the [MeshCore Companion](https://meshcore.co) app.
+> **XIAO nRF52840 only.** This component has been developed and tested exclusively on the Seeed XIAO nRF52840 with SX1262 LoRa radio, running on ESPHome's Zephyr/nRF52 platform. It will not work on ESP32/ESP8266 boards without significant modifications to the HAL, SPI driver, and build system.
 
 ## Quick Start
 
@@ -61,13 +61,13 @@ cp .esphome/build/my-sensor/.pioenvs/my-sensor/zephyr/zephyr.uf2 /Volumes/XIAO-S
 esphome upload my-sensor.yaml
 ```
 
-Open the companion app, tap **Discover Sensors** — your sensor should appear.
+Open the Companion, tap **Discover Sensors** — your sensor should appear.
 
 ## Configuration
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `name` | `"ESPHome Sensor"` | Node name shown in companion app |
+| `name` | `"ESPHome Sensor"` | Node name shown in Companion |
 | `password` | `"password"` | Login password for remote management |
 | `led_pin` | `26` | Onboard LED GPIO. Used as TX activity indicator (flashes on radio transmit) and controllable via `set_led()`/`get_led()` in lambdas |
 | `frequency` | `869.432` | LoRa frequency in MHz |
@@ -75,6 +75,8 @@ Open the companion app, tap **Discover Sensors** — your sensor should appear.
 | `spreading_factor` | `7` | LoRa SF (5-12) |
 | `coding_rate` | `5` | LoRa CR (5-8) |
 | `tx_power` | `22` | TX power in dBm (-9 to 22) |
+| `i2c_sda_pin` | — | Remap I2C1 SDA to this GPIO. Default I2C1 pins (P0.04/P0.05) conflict with LoRa, so I2C1 is disabled unless you remap it |
+| `i2c_scl_pin` | — | Remap I2C1 SCL to this GPIO. Must be set together with `i2c_sda_pin` |
 
 ### Radio Presets
 
@@ -87,7 +89,7 @@ All devices on the mesh must use the same radio preset.
 
 ## Commands
 
-Define commands that users can send from the companion app. Each command has a prefix to match and a C++ lambda that returns a response string.
+Define commands that users can send from the Companion. Each command has a prefix to match and a C++ lambda that returns a response string.
 
 ```yaml
 meshcore_sensor:
@@ -108,106 +110,11 @@ meshcore_sensor:
 
 Lambdas receive the full command string and can reference any ESPHome entity via `id()`.
 
-## Examples
-
-### Relay Control
-
-```yaml
-switch:
-  - platform: gpio
-    pin: 3
-    id: relay
-    name: "Relay"
-
-meshcore_sensor:
-  id: meshcore
-  # ... radio config ...
-
-  on_command:
-    - command: "relay on"
-      lambda: |-
-        id(relay).turn_on();
-        return std::string("Relay ON");
-
-    - command: "relay off"
-      lambda: |-
-        id(relay).turn_off();
-        return std::string("Relay OFF");
-
-    - command: "relay status"
-      lambda: |-
-        return id(relay).state
-          ? std::string("Relay: ON")
-          : std::string("Relay: OFF");
-```
-
-### Reading Sensors
-
-```yaml
-sensor:
-  - platform: dht
-    pin: 7
-    temperature:
-      id: temp
-      name: "Temperature"
-    humidity:
-      id: humidity
-      name: "Humidity"
-
-meshcore_sensor:
-  id: meshcore
-  # ... radio config ...
-
-  on_command:
-    - command: "status"
-      lambda: |-
-        char buf[64];
-        snprintf(buf, sizeof(buf), "T=%.1fC H=%.0f%%",
-                 id(temp).state, id(humidity).state);
-        return std::string(buf);
-```
-
-### Fan Control
-
-```yaml
-output:
-  - platform: gpio
-    id: fan_fwd
-    pin: 3
-  - platform: gpio
-    id: fan_rev
-    pin: 4
-
-fan:
-  - platform: hbridge
-    id: attic_fan
-    name: "Attic Fan"
-    pin_a: fan_fwd
-    pin_b: fan_rev
-
-meshcore_sensor:
-  id: meshcore
-  # ... radio config ...
-
-  on_command:
-    - command: "fan on"
-      lambda: |-
-        auto call = id(attic_fan).turn_on();
-        call.perform();
-        return std::string("Fan ON");
-
-    - command: "fan off"
-      lambda: |-
-        auto call = id(attic_fan).turn_off();
-        call.perform();
-        return std::string("Fan OFF");
-```
-
 ## Hardware
 
 - **MCU:** Seeed XIAO nRF52840 (Sense or non-Sense)
 - **Radio:** SX1262 LoRa module (MeshCore XIAO variant pinout)
-- **Companion app:** [MeshCore Companion](https://meshcore.co) (iOS/Android)
+- **Companion:** [MeshCore Companion](https://meshcore.co)
 
 ### Pin Mapping
 
@@ -222,9 +129,11 @@ meshcore_sensor:
 | DIO1     | D1       | P0.03 (3)     | `lora_dio1_pin` |
 | RXEN     | D5       | P0.05 (5)     | `lora_rxen_pin` |
 
+D0 (P0.02) is the only pin free by default. D6/D7 are used by UART0 (serial console). To free up more pins, you can remap I2C or UART via config/overlays.
+
 ## Troubleshooting
 
-**Not visible in Discover Sensors:** Companion app must use the same radio preset (frequency, bandwidth, SF, CR).
+**Not visible in Discover Sensors:** Companion must use the same radio preset (frequency, bandwidth, SF, CR).
 
 **Login fails:** Password must match the `password` config exactly.
 

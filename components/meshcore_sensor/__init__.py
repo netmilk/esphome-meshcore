@@ -28,6 +28,10 @@ CONF_LORA_SCLK = "lora_sclk_pin"
 CONF_LORA_MISO = "lora_miso_pin"
 CONF_LORA_MOSI = "lora_mosi_pin"
 
+# I2C remap
+CONF_I2C_SDA = "i2c_sda_pin"
+CONF_I2C_SCL = "i2c_scl_pin"
+
 # Radio params
 CONF_FREQUENCY = "frequency"
 CONF_BANDWIDTH = "bandwidth"
@@ -65,6 +69,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_SPREADING_FACTOR, default=7): cv.int_range(min=5, max=12),
         cv.Optional(CONF_CODING_RATE, default=5): cv.int_range(min=5, max=8),
         cv.Optional(CONF_TX_POWER, default=22): cv.int_range(min=-9, max=22),
+        # I2C remap (default I2C1 pins P0.04/P0.05 conflict with LoRa CS/RXEN)
+        cv.Optional(CONF_I2C_SDA): cv.int_,
+        cv.Optional(CONF_I2C_SCL): cv.int_,
         # Command handlers
         cv.Optional(CONF_ON_COMMAND): cv.ensure_list(COMMAND_HANDLER_SCHEMA),
     }
@@ -235,8 +242,34 @@ async def to_code(config):
     # Increase system workqueue stack (used by settings/flash writes)
     zephyr_add_prj_conf("SYSTEM_WORKQUEUE_STACK_SIZE", 4096)
 
-    # Disable i2c1 which uses P0.04/P0.05 (conflicts with LoRa CS and RXEN pins)
-    zephyr_add_overlay("""
+    # I2C1 default pins P0.04/P0.05 conflict with LoRa CS/RXEN.
+    # If user provides alternative pins, remap I2C1. Otherwise disable it.
+    i2c_sda = config.get(CONF_I2C_SDA)
+    i2c_scl = config.get(CONF_I2C_SCL)
+    if i2c_sda is not None and i2c_scl is not None:
+        sda_port = i2c_sda // 32
+        sda_pin = i2c_sda % 32
+        scl_port = i2c_scl // 32
+        scl_pin = i2c_scl % 32
+        zephyr_add_overlay(f"""
+&pinctrl {{
+    i2c1_default: i2c1_default {{
+        group1 {{
+            psels = <NRF_PSEL(TWIM_SDA, {sda_port}, {sda_pin})>,
+                <NRF_PSEL(TWIM_SCL, {scl_port}, {scl_pin})>;
+        }};
+    }};
+    i2c1_sleep: i2c1_sleep {{
+        group1 {{
+            psels = <NRF_PSEL(TWIM_SDA, {sda_port}, {sda_pin})>,
+                <NRF_PSEL(TWIM_SCL, {scl_port}, {scl_pin})>;
+            low-power-enable;
+        }};
+    }};
+}};
+""")
+    else:
+        zephyr_add_overlay("""
 &i2c1 {
     status = "disabled";
 };
