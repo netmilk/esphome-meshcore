@@ -1,4 +1,4 @@
-# nrf-home
+# esphome-meshcore
 
 ESPHome MeshCore sensor component for XIAO nRF52840 + SX1262 LoRa radio.
 
