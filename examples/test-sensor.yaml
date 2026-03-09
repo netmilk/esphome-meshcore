@@ -1,0 +1,53 @@
+esphome:
+  name: test-sensor
+
+nrf52:
+  board: xiao_ble
+  bootloader: adafruit
+  dfu:
+    reset_pin: 18
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/netmilk/esphome-meshcore
+      ref: main
+    components: [meshcore_sensor]
+
+meshcore_sensor:
+  id: meshcore
+  name: "ESPHome Component Test"
+  password: "password"
+  frequency: 869.432
+  bandwidth: 62.5
+  spreading_factor: 7
+  coding_rate: 5
+  tx_power: 22
+
+  on_command:
+    - command: "uptime"
+      lambda: |-
+        uint32_t s = millis() / 1000;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%ud %uh %um %us",
+                 s/86400, (s/3600)%24, (s/60)%60, s%60);
+        return std::string(buf);
+
+    - command: "led on"
+      lambda: |-
+        id(meshcore).set_led(true);
+        return std::string("LED is ON");
+
+    - command: "led off"
+      lambda: |-
+        id(meshcore).set_led(false);
+        return std::string("LED is OFF");
+
+    - command: "led toggle"
+      lambda: |-
+        bool new_state = !id(meshcore).get_led();
+        id(meshcore).set_led(new_state);
+        return new_state ? std::string("LED toggled ON") : std::string("LED toggled OFF");

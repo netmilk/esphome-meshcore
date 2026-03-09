@@ -52,6 +52,7 @@ meshcore_sensor:
 Build and flash:
 
 ```bash
+# First compile downloads libraries — run twice if it fails with missing headers
 esphome compile my-sensor.yaml
 
 # First flash: double-tap reset button, device mounts as XIAO-SENSE drive
