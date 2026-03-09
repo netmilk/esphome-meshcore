@@ -40,7 +40,18 @@ No test suite exists — test by flashing and using the MeshCore companion app.
 - `meshcore_stubs/arduino_compat.h` — Arduino API shims for Zephyr (File, SPI, millis, min/max, settings-backed filesystem)
 - `meshcore_stubs/target.h` — Hardware pin/radio defines (replaces MeshCore variant header)
 
-**External dependency**: MeshCore source is a git submodule at `./MeshCore` (pinned to a specific commit). Clone with `git clone --recurse-submodules` or run `git submodule update --init` after cloning.
+**External dependency**: MeshCore source is a git submodule at `./MeshCore` (pinned to a specific commit). Auto-initialized at build time by `__init__.py` when used as external component. For local dev: `git clone --recurse-submodules` or `git submodule update --init`.
+
+**External component usage**: Users don't need to clone this repo. They just reference it in their YAML:
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/netmilk/esphome-meshcore
+      ref: main
+    components: [meshcore_sensor]
+```
+ESPHome clones the repo, and `__init__.py` auto-inits the MeshCore submodule. All paths resolve relative to the component repo root via `__file__`, not CWD.
 
 ## Critical Gotchas
 

@@ -23,57 +23,70 @@ This is a **port** of the [MeshCore](https://github.com/rocketgarden/MeshCore) l
 | DIO1     | D1       | P0.03 (3)     | `lora_dio1_pin` |
 | RXEN     | D5       | P0.05 (5)     | `lora_rxen_pin` |
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
 - ESPHome with nRF52 support (`pip install esphome`)
 - PlatformIO (installed automatically by ESPHome)
 
-### Clone
+### 1. Create your YAML config
 
-```bash
-git clone --recurse-submodules https://github.com/<your-org>/nrf-home.git
-cd nrf-home
+No need to clone this repo. Just create a YAML file:
 
-# If you already cloned without --recurse-submodules:
-git submodule update --init
+```yaml
+esphome:
+  name: my-sensor
+
+nrf52:
+  board: xiao_ble
+  bootloader: adafruit
+  dfu:
+    reset_pin: 18
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/netmilk/esphome-meshcore
+      ref: main
+    components: [meshcore_sensor]
+
+meshcore_sensor:
+  name: "My Sensor"
+  password: "mypassword"
+  frequency: 869.432
+  bandwidth: 62.5
+  spreading_factor: 7
+  coding_rate: 5
+  tx_power: 22
 ```
 
-MeshCore source is included as a git submodule at `./MeshCore`, pinned to a known working commit.
+The MeshCore library is fetched automatically as a git submodule — no manual cloning needed.
 
-### Project Structure
-
-```
-nrf-home/
-├── xiao-meshcore.yaml              # ESPHome config
-├── MeshCore/                       # Git submodule (pinned)
-├── components/
-│   └── meshcore_sensor/            # The component
-│       ├── __init__.py             # Build config + codegen
-│       ├── meshcore_sensor.h       # Component header
-│       ├── meshcore_sensor.cpp     # Unity build + component impl
-│       ├── zephyr_hal.h/cpp        # RadioLib HAL for Zephyr
-│       └── zephyr_board.h/cpp      # MeshCore MainBoard for Zephyr
-└── meshcore_stubs/                 # Arduino API stubs
-    ├── Arduino.h
-    ├── arduino_compat.h
-    ├── Stream.h
-    ├── target.h
-    └── ...
-```
-
-### Build & Flash
+### 2. Build & Flash
 
 ```bash
 # Compile
-esphome compile xiao-meshcore.yaml
+esphome compile my-sensor.yaml
 
 # Flash (first time: double-tap reset button, then copy UF2)
-cp .esphome/build/xiao-meshcore/.pioenvs/xiao-meshcore/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/
+cp .esphome/build/my-sensor/.pioenvs/my-sensor/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/
 
 # Subsequent flashes: DFU is automatic (1200 baud touch)
-esphome upload xiao-meshcore.yaml
+esphome upload my-sensor.yaml
+```
+
+### Local Development
+
+For contributing or local development, clone the repo:
+
+```bash
+git clone --recurse-submodules https://github.com/netmilk/esphome-meshcore.git
+cd esphome-meshcore
+esphome compile xiao-meshcore.yaml
 ```
 
 ## Configuration
@@ -95,8 +108,10 @@ logger:
 
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/netmilk/esphome-meshcore
+      ref: main
+    components: [meshcore_sensor]
 
 meshcore_sensor:
   name: "My Sensor"

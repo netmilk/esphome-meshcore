@@ -1,7 +1,10 @@
+import logging
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.components.zephyr import zephyr_add_prj_conf, zephyr_add_overlay
+
+_LOGGER = logging.getLogger(__name__)
 
 CODEOWNERS = ["@netmilk"]
 DEPENDENCIES = []
@@ -73,9 +76,24 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     import os
+    import subprocess
+
+    # Resolve paths relative to the component repo root (works for both
+    # local and external_components usage — __file__ is always inside the repo)
+    component_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(os.path.dirname(component_dir))
+
     meshcore_path = config[CONF_MESHCORE_PATH]
     if not os.path.isabs(meshcore_path):
-        meshcore_path = os.path.abspath(meshcore_path)
+        meshcore_path = os.path.join(repo_root, meshcore_path)
+
+    # Auto-init MeshCore submodule if not populated
+    if not os.path.exists(os.path.join(meshcore_path, "src")):
+        _LOGGER.info("Initializing MeshCore submodule...")
+        subprocess.check_call(
+            ["git", "submodule", "update", "--init", "MeshCore"],
+            cwd=repo_root,
+        )
 
     # Set node name and password
     cg.add(var.set_node_name(config[CONF_NODE_NAME]))
@@ -108,13 +126,8 @@ async def to_code(config):
         )
         cg.add(var.add_command_handler(cmd_conf[CONF_COMMAND_PREFIX], lambda_))
 
-    # Component's own path (for Arduino compat stubs like Stream.h)
-    import os
-    component_dir = os.path.dirname(os.path.abspath(__file__))
-    # Stubs directory is at the project root, outside the component dir
-    # component_dir = .../components/meshcore_sensor, project root = components/..
-    project_root = os.path.dirname(os.path.dirname(component_dir))
-    stubs_dir = os.path.join(project_root, "meshcore_stubs")
+    # Stubs directory is at the repo root, next to components/
+    stubs_dir = os.path.join(repo_root, "meshcore_stubs")
     cg.add_build_flag(f"-I{stubs_dir}")
 
     # MeshCore include paths
@@ -167,10 +180,10 @@ async def to_code(config):
     cg.add_platformio_option("lib_ldf_mode", "deep+")
 
     # Manually add library include paths (unity build hides them from LDF)
-    import os
-    base = os.getcwd()
-    device_name = "xiao-meshcore"
-    libdeps_base = os.path.join(base, f".esphome/build/{device_name}/.piolibdeps/{device_name}")
+    from esphome.core import CORE
+    device_name = CORE.name
+    build_dir = CORE.build_path
+    libdeps_base = os.path.join(build_dir, f".piolibdeps/{device_name}")
 
     crypto_path = os.path.join(libdeps_base, "Crypto")
     cayenne_path = os.path.join(libdeps_base, "CayenneLPP/src")
