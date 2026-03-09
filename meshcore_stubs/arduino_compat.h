@@ -7,6 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/settings/settings.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,21 +54,13 @@ static inline T constrain(T x, U lo, V hi) {
     if (x > (T)hi) return (T)hi;
     return x;
 }
-// Note: avoid min/max/abs macros that conflict with C++ std:: versions
-// Arduino defines these but they cause issues with ESPHome headers
-#ifndef _ARDUINO_MIN_MAX_ABS
-#define _ARDUINO_MIN_MAX_ABS
-template<typename T, typename U>
-static inline auto _arduino_min(T a, U b) -> decltype(a < b ? a : b) { return a < b ? a : b; }
-template<typename T, typename U>
-static inline auto _arduino_max(T a, U b) -> decltype(a > b ? a : b) { return a > b ? a : b; }
-// Only define min/max in MeshCore compilation context
+// Simple min/max macros matching Arduino behavior
+// Template versions caused ptrdiff_t vs int return type issues on ARM
 #ifndef min
-#define min(a,b) _arduino_min(a,b)
+#define min(a,b) ((a)<(b)?(a):(b))
 #endif
 #ifndef max
-#define max(a,b) _arduino_max(a,b)
-#endif
+#define max(a,b) ((a)>(b)?(a):(b))
 #endif
 static inline long map(long x, long in_min, long in_max, long out_min, long out_max) {
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -189,36 +182,46 @@ public:
 extern WireStub Wire;
 #endif
 
-// ---- Filesystem stubs ----
-// MeshCore uses FILESYSTEM (Adafruit_LittleFS on nRF52)
-// We provide a stub that stores nothing (prefs won't persist initially)
+// ---- Settings-backed filesystem ----
+// Implements Arduino File and Adafruit_LittleFS using Zephyr settings subsystem.
+// Files are fully buffered in RAM, persisted to NVS flash on close().
+// This makes MeshCore's ACL, NodePrefs, and IdentityStore persist across reboots.
 
-class File : public Stream {
-public:
-    operator bool() const { return false; }
-    int available() override { return 0; }
-    int read() override { return -1; }
-    size_t read(uint8_t* buf, size_t sz) { (void)buf; return 0; }
-    size_t write(uint8_t b) override { (void)b; return 0; }
-    size_t write(const uint8_t* buf, size_t sz) override { (void)buf; return 0; }
-    void close() {}
-    size_t size() { return 0; }
-    bool seek(size_t pos) { (void)pos; return false; }
+#define _MC_FILE_MAX_SIZE 4096
+
+// Convert MeshCore file path to Zephyr settings key: "/s_contacts" -> "mc/s_contacts"
+static inline void _mc_path_to_key(const char* path, char* key, size_t key_sz) {
+    const char* p = (path[0] == '/') ? path + 1 : path;
+    snprintf(key, key_sz, "mc/%s", p);
+}
+
+// Settings load callback — reads stored blob into a RAM buffer
+struct _McFileLoadCtx {
+    uint8_t* buf;
+    size_t capacity;
+    size_t loaded;
+    bool found;
 };
 
-class Adafruit_LittleFS {
-public:
-    bool begin() { return true; }
-    bool format() { return true; }
-    bool mkdir(const char* path) { (void)path; return true; }
-    File open(const char* path, int mode = 0) { (void)path; (void)mode; return File(); }
-    bool exists(const char* path) { (void)path; return false; }
-    bool remove(const char* path) { (void)path; return true; }
-};
+static int _mc_file_load_cb(const char *key, size_t len,
+                             settings_read_cb read_cb, void *cb_arg, void *param) {
+    (void)key;
+    _McFileLoadCtx* ctx = (_McFileLoadCtx*)param;
+    size_t to_read = (len < ctx->capacity) ? len : ctx->capacity;
+    ssize_t n = read_cb(cb_arg, ctx->buf, to_read);
+    ctx->loaded = (n > 0) ? (size_t)n : 0;
+    ctx->found = true;
+    return 0;
+}
 
-#ifndef FILESYSTEM
-#define FILESYSTEM Adafruit_LittleFS
-#endif
+// Settings exists callback — just checks if key has data
+static int _mc_file_exists_cb(const char *key, size_t len,
+                               settings_read_cb read_cb, void *cb_arg, void *param) {
+    (void)key; (void)len; (void)read_cb; (void)cb_arg;
+    *((bool*)param) = true;
+    return 0;
+}
+
 #ifndef FILE_O_READ
 #define FILE_O_READ  0
 #endif
@@ -226,11 +229,188 @@ public:
 #define FILE_O_WRITE 1
 #endif
 
+class File : public Stream {
+    mutable uint8_t* buf_;
+    size_t capacity_;       // buffer allocation size
+    mutable size_t size_;   // data length (read mode) or bytes written (write mode)
+    mutable size_t pos_;    // current read position
+    mutable bool valid_;
+    bool write_mode_;
+    char key_[48];
+
+public:
+    File() : buf_(nullptr), capacity_(0), size_(0), pos_(0), valid_(false), write_mode_(false) {
+        key_[0] = 0;
+    }
+
+    ~File() { free(buf_); }
+
+    // Move constructor
+    File(File&& o) noexcept : buf_(o.buf_), capacity_(o.capacity_), size_(o.size_),
+                               pos_(o.pos_), valid_(o.valid_), write_mode_(o.write_mode_) {
+        memcpy(key_, o.key_, sizeof(key_));
+        o.buf_ = nullptr;
+        o.valid_ = false;
+    }
+
+    // Copy constructor — transfers ownership (for return-by-value)
+    File(const File& o) : buf_(o.buf_), capacity_(o.capacity_), size_(o.size_),
+                           pos_(o.pos_), valid_(o.valid_), write_mode_(o.write_mode_) {
+        memcpy(key_, o.key_, sizeof(key_));
+        o.buf_ = nullptr;
+        o.valid_ = false;
+    }
+
+    File& operator=(const File& o) {
+        if (this != &o) {
+            free(buf_);
+            buf_ = o.buf_; capacity_ = o.capacity_; size_ = o.size_;
+            pos_ = o.pos_; valid_ = o.valid_; write_mode_ = o.write_mode_;
+            memcpy(key_, o.key_, sizeof(key_));
+            o.buf_ = nullptr;
+            o.valid_ = false;
+        }
+        return *this;
+    }
+
+    // Initialize for reading — loads data from Zephyr settings into RAM buffer
+    bool _initRead(const char* settings_key) {
+        printk("[mc_fs] _initRead key=%s\n", settings_key);
+        buf_ = (uint8_t*)malloc(_MC_FILE_MAX_SIZE);
+        if (!buf_) return false;
+        _McFileLoadCtx ctx = {buf_, _MC_FILE_MAX_SIZE, 0, false};
+        settings_load_subtree_direct(settings_key, _mc_file_load_cb, &ctx);
+        if (!ctx.found || ctx.loaded == 0) {
+            free(buf_); buf_ = nullptr;
+            return false;
+        }
+        capacity_ = _MC_FILE_MAX_SIZE;
+        size_ = ctx.loaded;
+        pos_ = 0;
+        valid_ = true;
+        write_mode_ = false;
+        strncpy(key_, settings_key, sizeof(key_) - 1);
+        key_[sizeof(key_) - 1] = 0;
+        return true;
+    }
+
+    // Initialize for writing — allocates empty RAM buffer, persisted on close()
+    bool _initWrite(const char* settings_key) {
+        printk("[mc_fs] _initWrite key=%s\n", settings_key);
+        buf_ = (uint8_t*)malloc(_MC_FILE_MAX_SIZE);
+        if (!buf_) return false;
+        capacity_ = _MC_FILE_MAX_SIZE;
+        size_ = 0;
+        pos_ = 0;
+        valid_ = true;
+        write_mode_ = true;
+        strncpy(key_, settings_key, sizeof(key_) - 1);
+        key_[sizeof(key_) - 1] = 0;
+        return true;
+    }
+
+    operator bool() const { return valid_; }
+
+    int available() override {
+        return (valid_ && !write_mode_) ? (int)(size_ - pos_) : 0;
+    }
+
+    int read() override {
+        if (!valid_ || write_mode_ || pos_ >= size_) return -1;
+        return buf_[pos_++];
+    }
+
+    size_t read(uint8_t* dest, size_t sz) {
+        if (!valid_ || write_mode_) return 0;
+        size_t avail = size_ - pos_;
+        size_t n = (sz < avail) ? sz : avail;
+        memcpy(dest, buf_ + pos_, n);
+        pos_ += n;
+        return n;
+    }
+
+    size_t write(uint8_t b) override {
+        if (!valid_ || !write_mode_ || size_ >= capacity_) return 0;
+        buf_[size_++] = b;
+        return 1;
+    }
+
+    size_t write(const uint8_t* data, size_t sz) override {
+        if (!valid_ || !write_mode_) return 0;
+        size_t avail = capacity_ - size_;
+        size_t n = (sz < avail) ? sz : avail;
+        memcpy(buf_ + size_, data, n);
+        size_ += n;
+        return n;
+    }
+
+    void close() {
+        if (valid_ && write_mode_ && key_[0] && buf_) {
+            printk("[mc_fs] save key=%s len=%u\n", key_, (unsigned)size_);
+            int rc = settings_save_one(key_, buf_, size_);
+            printk("[mc_fs] save rc=%d\n", rc);
+        }
+        free(buf_);
+        buf_ = nullptr;
+        valid_ = false;
+    }
+
+    size_t size() { return size_; }
+
+    bool seek(size_t p) {
+        if (!valid_ || p > size_) return false;
+        pos_ = p;
+        return true;
+    }
+
+    void flush() override {}
+};
+
+class Adafruit_LittleFS {
+public:
+    bool begin() { return true; }
+    bool format() { return true; }
+    bool mkdir(const char* path) { (void)path; return true; }
+
+    File open(const char* path, int mode = 0) {
+        char key[48];
+        _mc_path_to_key(path, key, sizeof(key));
+        File f;
+        if (mode == FILE_O_WRITE) {
+            f._initWrite(key);
+        } else {
+            f._initRead(key);
+        }
+        return f;
+    }
+
+    bool exists(const char* path) {
+        char key[48];
+        _mc_path_to_key(path, key, sizeof(key));
+        printk("[mc_fs] exists key=%s\n", key);
+        bool found = false;
+        settings_load_subtree_direct(key, _mc_file_exists_cb, &found);
+        return found;
+    }
+
+    bool remove(const char* path) {
+        char key[48];
+        _mc_path_to_key(path, key, sizeof(key));
+        printk("[mc_fs] remove key=%s\n", key);
+        settings_delete(key);
+        return true;
+    }
+};
+
+#ifndef FILESYSTEM
+#define FILESYSTEM Adafruit_LittleFS
+#endif
+
 namespace Adafruit_LittleFS_Namespace {
-    // empty - used by MeshCore's using directive
+    // empty — used by MeshCore's using directive
 }
 
-// ---- InternalFileSystem stub (for NRF52_PLATFORM) ----
+// ---- InternalFileSystem (for NRF52_PLATFORM) ----
 class InternalFileSystemClass : public Adafruit_LittleFS {
 public:
     bool begin() { return true; }

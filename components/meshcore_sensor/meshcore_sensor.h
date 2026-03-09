@@ -1,10 +1,12 @@
 // ESPHome MeshCore Sensor Component
-// Runs a MeshCore sensor node with LED control via CLI commands
+// Runs a MeshCore sensor node with configurable CLI command handlers
 #pragma once
 
 #include "esphome/core/component.h"
 #include <stdint.h>
 #include <string>
+#include <vector>
+#include <functional>
 
 // Forward declarations - full headers only in meshcore_sensor.cpp
 namespace meshcore_sensor {
@@ -16,6 +18,11 @@ namespace meshcore_sensor {
 }
 
 namespace meshcore_sensor {
+
+struct CommandHandler {
+    std::string prefix;
+    std::function<std::string(std::string)> handler;
+};
 
 class MeshCoreSensorComponent : public esphome::Component {
 public:
@@ -47,6 +54,18 @@ public:
     void set_coding_rate(uint8_t cr) { coding_rate_ = cr; }
     void set_tx_power(int8_t pwr) { tx_power_ = pwr; }
 
+    // Command handler registration (called from generated code)
+    void add_command_handler(const std::string& prefix, std::function<std::string(std::string)> handler) {
+        command_handlers_.push_back({prefix, std::move(handler)});
+    }
+
+    // LED control (for use from lambdas / switches)
+    void set_led(bool on);
+    bool get_led() const;
+
+    // Access to command handlers (used by LedSensorMesh)
+    std::vector<CommandHandler>& get_command_handlers() { return command_handlers_; }
+
 protected:
     // Config
     std::string node_name_{"ESPHome Sensor"};
@@ -69,6 +88,9 @@ protected:
     uint8_t spreading_factor_{7};
     uint8_t coding_rate_{5};
     int8_t tx_power_{22};
+
+    // Command handlers (registered via on_command)
+    std::vector<CommandHandler> command_handlers_;
 
     // Runtime objects (allocated in setup)
     ZephyrHal* hal_{nullptr};

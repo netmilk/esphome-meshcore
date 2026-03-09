@@ -12,6 +12,8 @@ CONF_NODE_NAME = "name"
 CONF_PASSWORD = "password"
 CONF_LED_PIN = "led_pin"
 CONF_MESHCORE_PATH = "meshcore_path"
+CONF_ON_COMMAND = "on_command"
+CONF_COMMAND_PREFIX = "command"
 
 # LoRa pin config
 CONF_LORA_CS = "lora_cs_pin"
@@ -33,13 +35,18 @@ CONF_TX_POWER = "tx_power"
 meshcore_sensor_ns = cg.esphome_ns.namespace("meshcore_sensor")
 MeshCoreSensorComponent = meshcore_sensor_ns.class_("MeshCoreSensorComponent", cg.Component)
 
+COMMAND_HANDLER_SCHEMA = cv.Schema({
+    cv.Required(CONF_COMMAND_PREFIX): cv.string,
+    cv.Required("lambda"): cv.lambda_,
+})
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MeshCoreSensorComponent),
         cv.Optional(CONF_NODE_NAME, default="ESPHome Sensor"): cv.string,
         cv.Optional(CONF_PASSWORD, default="password"): cv.string,
         cv.Optional(CONF_LED_PIN, default=26): cv.int_,
-        cv.Optional(CONF_MESHCORE_PATH, default="/Users/netmilk/projects/MeshCore"): cv.string,
+        cv.Optional(CONF_MESHCORE_PATH, default="MeshCore"): cv.string,
         # LoRa pins (nRF52840 GPIO numbers)
         cv.Optional(CONF_LORA_CS, default=4): cv.int_,        # P0.04 = D4
         cv.Optional(CONF_LORA_RESET, default=28): cv.int_,    # P0.28 = D2
@@ -55,6 +62,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_SPREADING_FACTOR, default=7): cv.int_range(min=5, max=12),
         cv.Optional(CONF_CODING_RATE, default=5): cv.int_range(min=5, max=8),
         cv.Optional(CONF_TX_POWER, default=22): cv.int_range(min=-9, max=22),
+        # Command handlers
+        cv.Optional(CONF_ON_COMMAND): cv.ensure_list(COMMAND_HANDLER_SCHEMA),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -63,7 +72,10 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
+    import os
     meshcore_path = config[CONF_MESHCORE_PATH]
+    if not os.path.isabs(meshcore_path):
+        meshcore_path = os.path.abspath(meshcore_path)
 
     # Set node name and password
     cg.add(var.set_node_name(config[CONF_NODE_NAME]))
@@ -86,6 +98,15 @@ async def to_code(config):
     cg.add(var.set_spreading_factor(config[CONF_SPREADING_FACTOR]))
     cg.add(var.set_coding_rate(config[CONF_CODING_RATE]))
     cg.add(var.set_tx_power(config[CONF_TX_POWER]))
+
+    # Register on_command handlers
+    for cmd_conf in config.get(CONF_ON_COMMAND, []):
+        lambda_ = await cg.process_lambda(
+            cmd_conf["lambda"],
+            [(cg.std_string, "command")],
+            return_type=cg.std_string,
+        )
+        cg.add(var.add_command_handler(cmd_conf[CONF_COMMAND_PREFIX], lambda_))
 
     # Component's own path (for Arduino compat stubs like Stream.h)
     import os
@@ -182,6 +203,24 @@ async def to_code(config):
 
     # Enable SPI in Zephyr via prj.conf (needed for Zephyr SPI driver API)
     zephyr_add_prj_conf("SPI", True)
+
+    # Increase main thread stack size (ESPHome default 2KB is too small for MeshCore
+    # call chains: RadioLib SPI + ed25519 crypto + File malloc(4KB) + settings flash I/O)
+    # Override the existing value by patching the prj_conf dict directly
+    from esphome.components.zephyr import zephyr_data
+    from esphome.components.zephyr.const import KEY_PRJ_CONF
+    prj_conf = zephyr_data()[KEY_PRJ_CONF]
+    prj_conf["CONFIG_MAIN_STACK_SIZE"] = (8192, True)
+
+    # Enable MPU stack guard for hard fault diagnostics
+    zephyr_add_prj_conf("MPU_STACK_GUARD", True)
+    zephyr_add_prj_conf("HW_STACK_PROTECTION", True)
+
+    # Increase heap for File malloc(4KB) buffers
+    zephyr_add_prj_conf("HEAP_MEM_POOL_SIZE", 16384)
+
+    # Increase system workqueue stack (used by settings/flash writes)
+    zephyr_add_prj_conf("SYSTEM_WORKQUEUE_STACK_SIZE", 4096)
 
     # Disable i2c1 which uses P0.04/P0.05 (conflicts with LoRa CS and RXEN pins)
     zephyr_add_overlay("""

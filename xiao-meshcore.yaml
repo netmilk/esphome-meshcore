@@ -16,10 +16,11 @@ external_components:
       path: components
 
 meshcore_sensor:
+  id: meshcore
   name: "LED Sensor"
   password: "password"
-  led_pin: 26            # P0.26 = onboard red LED (active low)
-  meshcore_path: "/Users/netmilk/projects/MeshCore"
+  led_pin: 26
+  meshcore_path: "MeshCore"
   # LoRa SX1262 pins (nRF52840 GPIO numbers matching MeshCore XIAO variant)
   lora_cs_pin: 4         # P0.04 = D4
   lora_reset_pin: 28     # P0.28 = D2
@@ -35,3 +36,36 @@ meshcore_sensor:
   spreading_factor: 7
   coding_rate: 5
   tx_power: 22
+
+  on_command:
+    - command: "led on"
+      lambda: |-
+        id(meshcore).set_led(true);
+        return std::string("LED is ON");
+
+    - command: "led off"
+      lambda: |-
+        id(meshcore).set_led(false);
+        return std::string("LED is OFF");
+
+    - command: "led toggle"
+      lambda: |-
+        bool new_state = !id(meshcore).get_led();
+        id(meshcore).set_led(new_state);
+        return new_state ? std::string("LED toggled ON") : std::string("LED toggled OFF");
+
+    - command: "led status"
+      lambda: |-
+        return id(meshcore).get_led() ? std::string("LED: ON") : std::string("LED: OFF");
+
+    - command: "uptime"
+      lambda: |-
+        uint32_t ms = millis();
+        uint32_t secs = ms / 1000;
+        uint32_t mins = secs / 60;
+        uint32_t hrs = mins / 60;
+        uint32_t days = hrs / 24;
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%ud %uh %um %us",
+                 days, hrs % 24, mins % 60, secs % 60);
+        return std::string(buf);

@@ -74,6 +74,8 @@ void ZephyrBoard::onAfterTransmit() {
 }
 
 void ZephyrBoard::reboot() {
+    printk("[REBOOT] board.reboot() called!\n");
+    k_msleep(100);  // let printk flush
     sys_reboot(SYS_REBOOT_COLD);
 }
 

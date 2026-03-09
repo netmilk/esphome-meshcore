@@ -130,8 +130,8 @@ CayenneLPPPolyline::Stats CayenneLPPPolyline::getEncodeStats() const { return {}
 
 #include _CLSRC(CayenneLPP.cpp)
 // Restore min/max for MeshCore code
-#define min(a,b) _arduino_min(a,b)
-#define max(a,b) _arduino_max(a,b)
+#define min(a,b) ((a)<(b)?(a):(b))
+#define max(a,b) ((a)>(b)?(a):(b))
 
 // ---- Include MeshCore source files (unity build) ----
 // Core protocol (mostly platform-agnostic)
@@ -224,6 +224,9 @@ mesh::LocalIdentity radio_new_identity() {
     return mesh::LocalIdentity(&rng);
 }
 
+// ---- Global pointer to command handlers (set during setup) ----
+static std::vector<CommandHandler>* s_cmd_handlers = nullptr;
+
 // ---- LED Sensor Mesh ----
 class LedSensorMesh : public SensorMesh {
     ZephyrBoard* board_ref_;
@@ -252,28 +255,21 @@ public:
     }
 
     bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
-        if (strcmp(command, "led on") == 0) {
-            board_ref_->setLed(true);
-            strcpy(reply, "LED is ON");
-            ESP_LOGI(TAG, "LED turned ON via mesh command");
-            return true;
-        }
-        if (strcmp(command, "led off") == 0) {
-            board_ref_->setLed(false);
-            strcpy(reply, "LED is OFF");
-            ESP_LOGI(TAG, "LED turned OFF via mesh command");
-            return true;
-        }
-        if (strcmp(command, "led status") == 0) {
-            strcpy(reply, board_ref_->getLed() ? "LED: ON" : "LED: OFF");
-            return true;
-        }
-        if (strcmp(command, "led toggle") == 0) {
-            bool new_state = !board_ref_->getLed();
-            board_ref_->setLed(new_state);
-            strcpy(reply, new_state ? "LED toggled ON" : "LED toggled OFF");
-            ESP_LOGI(TAG, "LED toggled to %s via mesh command", new_state ? "ON" : "OFF");
-            return true;
+        ESP_LOGI(TAG, "CLI cmd: '%s'", command);
+        // Dispatch to registered lambda handlers (from on_command YAML config)
+        if (s_cmd_handlers) {
+            std::string cmd(command);
+            for (auto& h : *s_cmd_handlers) {
+                if (cmd.rfind(h.prefix, 0) == 0) {  // starts_with
+                    std::string resp = h.handler(cmd);
+                    if (!resp.empty()) {
+                        strncpy(reply, resp.c_str(), MAX_PACKET_PAYLOAD - 1);
+                        reply[MAX_PACKET_PAYLOAD - 1] = '\0';
+                    }
+                    ESP_LOGI(TAG, "Command '%s' handled by lambda, reply: '%s'", command, reply);
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -450,8 +446,14 @@ void MeshCoreSensorComponent::setup() {
     }
 
     // Now initialize mesh (uses prefs for radio params, self_id for ACL)
+    ESP_LOGI(TAG, "Filesystem begin...");
     s_fs.begin();
+    ESP_LOGI(TAG, "Mesh begin (loads prefs + ACL from flash)...");
     s_mesh->begin(&s_fs);
+    ESP_LOGI(TAG, "Mesh begin done");
+
+    // Register command handlers for dispatch
+    s_cmd_handlers = &command_handlers_;
 
     radio_ok_ = true;
     ESP_LOGI(TAG, "MeshCore Sensor ready! Node: %s", node_name_.c_str());
@@ -461,15 +463,18 @@ void MeshCoreSensorComponent::setup() {
 }
 
 void MeshCoreSensorComponent::loop() {
-    // Check if DFU magic was written (1200 baud touch detected)
-    // The ESPHome DFU component writes 0x5A1AD5 to 0x20007F7C but can't reset the XIAO
-    // via GPIO — we need sys_reboot() to actually enter the bootloader
-    volatile uint32_t *dbl_reset_mem = (volatile uint32_t *) 0x20007F7C;
-    if (*dbl_reset_mem == 0x5A1AD5) {
-        ESP_LOGI(TAG, "DFU requested, rebooting into bootloader...");
-        k_msleep(100);  // let log flush
-        sys_reboot(SYS_REBOOT_COLD);
+    // Check if DFU magic was written (1200 baud touch from ESPHome CDC callback)
+    // Skip on first loop iteration to avoid reboot-loop from stale magic after DFU flash
+    static uint32_t loop_count = 0;
+    if (loop_count > 10) {
+        volatile uint32_t *dbl_reset_mem = (volatile uint32_t *) 0x20007F7C;
+        if (*dbl_reset_mem == 0x5A1AD5) {
+            ESP_LOGI(TAG, "DFU requested, rebooting into bootloader...");
+            k_msleep(100);
+            sys_reboot(SYS_REBOOT_WARM);
+        }
     }
+    loop_count++;
 
     if (!radio_ok_ || !s_mesh) return;
 
@@ -489,6 +494,14 @@ void MeshCoreSensorComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  Radio: %.3f MHz, BW %.1f kHz, SF %d, CR %d, TX %d dBm",
                   frequency_, bandwidth_, spreading_factor_, coding_rate_, tx_power_);
     ESP_LOGCONFIG(TAG, "  Status: %s", radio_ok_ ? "OK" : "FAILED");
+}
+
+void MeshCoreSensorComponent::set_led(bool on) {
+    s_board_instance.setLed(on);
+}
+
+bool MeshCoreSensorComponent::get_led() const {
+    return s_board_instance.getLed();
 }
 
 }  // namespace meshcore_sensor
