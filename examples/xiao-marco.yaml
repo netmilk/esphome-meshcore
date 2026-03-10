@@ -20,21 +20,6 @@ external_components:
 meshcore_sensor:
   id: meshcore
   name: "Marco Polo"
-  password: "password"
-  led_pin: 26
-  lora_cs_pin: 4
-  lora_reset_pin: 28
-  lora_busy_pin: 29
-  lora_dio1_pin: 3
-  lora_rxen_pin: 5
-  lora_sclk_pin: 45
-  lora_miso_pin: 46
-  lora_mosi_pin: 47
-  frequency: 869.432
-  bandwidth: 62.5
-  spreading_factor: 7
-  coding_rate: 5
-  tx_power: 22
 
   on_command:
     - command: "marco"
@@ -60,22 +45,20 @@ meshcore_sensor:
         id(d6).turn_off();
         return std::string("D6 OFF");
 
-    - command: "d7 on"
+    - command: "d7"
       lambda: |-
-        id(d7).turn_on();
-        return std::string("D7 ON");
-
-    - command: "d7 off"
-      lambda: |-
-        id(d7).turn_off();
-        return std::string("D7 OFF");
+        return id(d7).state ? std::string("D7: HIGH") : std::string("D7: LOW");
 
 switch:
   - platform: gpio
     pin: 43
-    name: "D6"
+    name: "D6 Output"
     id: d6
+
+binary_sensor:
   - platform: gpio
-    pin: 44
-    name: "D7"
+    pin:
+      number: 44
+      mode: INPUT_PULLDOWN
+    name: "D7 Input"
     id: d7
