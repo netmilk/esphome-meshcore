@@ -1,0 +1,80 @@
+esphome:
+  name: xiao-marco
+
+nrf52:
+  board: xiao_ble
+  bootloader: adafruit
+  dfu:
+    reset_pin: 18
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+meshcore_sensor:
+  id: meshcore
+  name: "Marco Polo"
+  password: "password"
+  led_pin: 26
+  meshcore_path: "MeshCore"
+  lora_cs_pin: 4
+  lora_reset_pin: 28
+  lora_busy_pin: 29
+  lora_dio1_pin: 3
+  lora_rxen_pin: 5
+  lora_sclk_pin: 45
+  lora_miso_pin: 46
+  lora_mosi_pin: 47
+  frequency: 869.432
+  bandwidth: 62.5
+  spreading_factor: 7
+  coding_rate: 5
+  tx_power: 22
+
+  on_command:
+    - command: "marco"
+      lambda: |-
+        return std::string("polo");
+
+    - command: "time"
+      lambda: |-
+        uint32_t t = id(meshcore).get_time();
+        time_t ts = (time_t)t;
+        struct tm *tm = gmtime(&ts);
+        char buf[32];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm);
+        return std::string(buf);
+
+    - command: "d6 on"
+      lambda: |-
+        id(d6).turn_on();
+        return std::string("D6 ON");
+
+    - command: "d6 off"
+      lambda: |-
+        id(d6).turn_off();
+        return std::string("D6 OFF");
+
+    - command: "d7 on"
+      lambda: |-
+        id(d7).turn_on();
+        return std::string("D7 ON");
+
+    - command: "d7 off"
+      lambda: |-
+        id(d7).turn_off();
+        return std::string("D7 OFF");
+
+switch:
+  - platform: gpio
+    pin: 43
+    name: "D6"
+    id: d6
+  - platform: gpio
+    pin: 44
+    name: "D7"
+    id: d7

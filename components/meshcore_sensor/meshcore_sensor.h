@@ -63,6 +63,9 @@ public:
     void set_led(bool on);
     bool get_led() const;
 
+    // RTC time (unix timestamp, set via MeshCore time sync)
+    uint32_t get_time() const;
+
     // Access to command handlers (used by LedSensorMesh)
     std::vector<CommandHandler>& get_command_handlers() { return command_handlers_; }
 

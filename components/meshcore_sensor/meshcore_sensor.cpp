@@ -536,4 +536,8 @@ bool MeshCoreSensorComponent::get_led() const {
     return s_board_instance.getLed();
 }
 
+uint32_t MeshCoreSensorComponent::get_time() const {
+    return rtc_clock_ ? rtc_clock_->getCurrentTime() : 0;
+}
+
 }  // namespace meshcore_sensor
