@@ -12,15 +12,16 @@ logger:
 
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/netmilk/esphome-meshcore
+      ref: main
+    components: [meshcore_sensor]
 
 meshcore_sensor:
   id: meshcore
   name: "Marco Polo"
   password: "password"
   led_pin: 26
-  meshcore_path: "MeshCore"
   lora_cs_pin: 4
   lora_reset_pin: 28
   lora_busy_pin: 29

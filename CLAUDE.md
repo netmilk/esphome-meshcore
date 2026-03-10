@@ -6,9 +6,9 @@ ESPHome MeshCore sensor component for XIAO nRF52840 + SX1262 LoRa radio.
 
 ```bash
 git submodule update --init                # fetch MeshCore submodule (if not cloned with --recurse-submodules)
-esphome compile xiao-meshcore.yaml         # compile
-esphome upload xiao-meshcore.yaml --device /dev/cu.usbmodem135401  # flash via DFU
-esphome logs xiao-meshcore.yaml --device /dev/cu.usbmodem135401    # serial monitor
+esphome compile examples/xiao-meshcore.yaml         # compile
+esphome upload examples/xiao-meshcore.yaml --device /dev/cu.usbmodem135401  # flash via DFU
+esphome logs examples/xiao-meshcore.yaml --device /dev/cu.usbmodem135401    # serial monitor
 ```
 
 Serial ports: `/dev/cu.usbmodem135401` (primary), `/dev/cu.usbmodem135403` (secondary). Opening primary resets the device.
